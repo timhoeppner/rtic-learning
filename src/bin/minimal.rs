@@ -7,40 +7,46 @@ use rtic_learning as _; // global logger + panicking-behavior + memory layout
 mod app {
     // use stm32f4xx_hal::pac::Interrupt;
     use rtic_learning::{
-        mono::MonoTimer,
         debug
     };
     use fugit::ExtU32;
-    use stm32f4xx_hal::{pac, prelude::*};
+    use stm32f4xx_hal::{pac, prelude::*, timer::MonoTimerUs, gpio::{Output, PushPull, PA5}};
 
-    const FREQ: u32 = 48_000_000;
+    const CRYSTAL_FREQ: u32 = 8_000_000;
+    const MAIN_FREQ: u32 = 84_000_000;
+    const PCLK1_FREQ: u32 = 42_000_000;
 
     #[shared]
     struct Shared {}
 
     #[local]
-    struct Local {}
+    struct Local {
+        led: PA5<Output<PushPull>>,
+    }
 
     #[monotonic(binds = TIM2, default = true)]
-    type MyMono = MonoTimer<pac::TIM2, 1_000_000>;
+    type MicrosecMono = MonoTimerUs<pac::TIM2>;
 
     #[init]
     fn init(ctx: init::Context) -> (Shared, Local, init::Monotonics) {
         defmt::println!("Hello, world!");
 
-        let _core: cortex_m::Peripherals = ctx.core;
+        let core: cortex_m::Peripherals = ctx.core;
         let device: stm32f4xx_hal::pac::Peripherals = ctx.device;
 
         debug::enable_debug_during_sleep(&device);
 
-        // Initialization required for MyMono before the clocks are setup
-        MyMono::pre_init(&device.RCC);
-
         let rcc = device.RCC.constrain();
-        let clocks = rcc.cfgr.sysclk(FREQ.hz()).freeze();
-        let mono = MyMono::new(device.TIM2, &clocks);
+        // let clocks = rcc.cfgr.sysclk(FREQ.hz()).freeze();
+        let clocks = rcc.cfgr
+            .use_hse(CRYSTAL_FREQ.Hz())
+            .sysclk(MAIN_FREQ.Hz())
+            .pclk1(PCLK1_FREQ.Hz())
+            .pclk2(MAIN_FREQ.Hz())
+            .freeze();
+        let mono = device.TIM2.monotonic_us(&clocks);
 
-        // core.SCB.set_sleepdeep();
+        // let mut timer = device.TIM1.counter_us(&clocks);
 
         let gpioa = device.GPIOA.split();
         let mut led = gpioa.pa5.into_push_pull_output();
@@ -50,7 +56,7 @@ mod app {
         foo::spawn().unwrap();
         bar::spawn().unwrap();
 
-        (Shared {}, Local {}, init::Monotonics(mono))
+        (Shared {}, Local { led }, init::Monotonics(mono))
     }
 
     #[idle]
@@ -66,9 +72,11 @@ mod app {
         }
     }
 
-    #[task]
-    fn foo(_: foo::Context) {
+    #[task(local = [led])]
+    fn foo(ctx: foo::Context) {
         defmt::println!("in foo");
+
+        ctx.local.led.toggle();
 
         foo::spawn_after(1.secs()).ok();
     }
