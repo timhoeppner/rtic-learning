@@ -6,7 +6,10 @@ use rtic_learning as _; // global logger + panicking-behavior + memory layout
 #[rtic::app(device = stm32f4xx_hal::pac, dispatchers = [EXTI0])]
 mod app {
     // use stm32f4xx_hal::pac::Interrupt;
-    use rtic_learning::mono::MonoTimer;
+    use rtic_learning::{
+        mono::MonoTimer,
+        debug
+    };
     use fugit::ExtU32;
     use stm32f4xx_hal::{pac, prelude::*};
 
@@ -22,25 +25,16 @@ mod app {
     type MyMono = MonoTimer<pac::TIM2, 1_000_000>;
 
     #[init]
-    fn init(mut ctx: init::Context) -> (Shared, Local, init::Monotonics) {
+    fn init(ctx: init::Context) -> (Shared, Local, init::Monotonics) {
         defmt::println!("Hello, world!");
 
         let _core: cortex_m::Peripherals = ctx.core;
         let device: stm32f4xx_hal::pac::Peripherals = ctx.device;
 
-        // The following block allows defmt to work even when going to sleep (WFI)
-        // See https://github.com/probe-rs/probe-rs/issues/350#issuecomment-740550519
-        device.DBGMCU.cr.modify(|_, w| {
-            w.dbg_sleep().set_bit();
-            w.dbg_standby().set_bit();
-            w.dbg_stop().set_bit()
-        });
-        device.RCC.ahb1enr.modify(|_, w| w.dma1en().enabled());
+        debug::enable_debug_during_sleep(&device);
 
-        // Initialization required for MyMono...
-        device.RCC.apb1enr.modify(|_, w| w.tim2en().set_bit());
-        device.RCC.apb1rstr.modify(|_, w| w.tim2rst().set_bit());
-        device.RCC.apb1rstr.modify(|_, w| w.tim2rst().clear_bit());
+        // Initialization required for MyMono before the clocks are setup
+        MyMono::pre_init(&device.RCC);
 
         let rcc = device.RCC.constrain();
         let clocks = rcc.cfgr.sysclk(FREQ.hz()).freeze();
