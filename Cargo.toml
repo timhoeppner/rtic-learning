@@ -1,5 +1,4 @@
 [package]
-# TODO(1) fix `authors` and `name` if you didn't use `cargo-generate`
 authors = ["TimH <timh@anteccontrols.com>"]
 name = "rtic-learning"
 edition = "2018"
